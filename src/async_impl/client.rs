@@ -106,6 +106,7 @@ struct Config {
     tls: TlsBackend,
     http_version_pref: HttpVersionPref,
     http1_title_case_headers: bool,
+    http2_max_header_list_size: Option<u32>,
     http2_initial_stream_window_size: Option<u32>,
     http2_initial_connection_window_size: Option<u32>,
     http2_adaptive_window: bool,
@@ -169,6 +170,7 @@ impl ClientBuilder {
                 tls: TlsBackend::default(),
                 http_version_pref: HttpVersionPref::All,
                 http1_title_case_headers: false,
+                http2_max_header_list_size: None,
                 http2_initial_stream_window_size: None,
                 http2_initial_connection_window_size: None,
                 http2_adaptive_window: false,
@@ -415,6 +417,9 @@ impl ClientBuilder {
             builder.http2_only(true);
         }
 
+        if let Some(http2_max_header_list_size) = config.http2_max_header_list_size {
+            builder.http2_max_header_list_size(http2_max_header_list_size);
+        }
         if let Some(http2_initial_stream_window_size) = config.http2_initial_stream_window_size {
             builder.http2_initial_stream_window_size(http2_initial_stream_window_size);
         }
