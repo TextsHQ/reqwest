@@ -118,6 +118,7 @@ struct Config {
     trust_dns: bool,
     error: Option<crate::Error>,
     https_only: bool,
+    strip_sensitive_headers: bool,
     dns_overrides: HashMap<String, SocketAddr>,
 }
 
@@ -181,6 +182,7 @@ impl ClientBuilder {
                 #[cfg(feature = "cookies")]
                 cookie_store: None,
                 https_only: false,
+                strip_sensitive_headers: false,
                 dns_overrides: HashMap::new(),
             },
         }
@@ -460,6 +462,7 @@ impl ClientBuilder {
                 proxies,
                 proxies_maybe_http_auth,
                 https_only: config.https_only,
+                strip_sensitive_headers: config.strip_sensitive_headers,
             }),
         })
     }
@@ -1196,6 +1199,11 @@ impl ClientBuilder {
         self
     }
 
+    pub fn strip_sensitive_headers(mut self, strip: bool) -> ClientBuilder {
+        self.config.strip_sensitive_headers = strip;
+        self
+    }
+
     /// Override DNS resolution for specific domains to particular IP addresses.
     ///
     /// Warning
@@ -1552,6 +1560,7 @@ struct ClientRef {
     proxies: Arc<Vec<Proxy>>,
     proxies_maybe_http_auth: bool,
     https_only: bool,
+    strip_sensitive_headers: bool,
 }
 
 impl ClientRef {
@@ -1774,7 +1783,10 @@ impl Future for PendingRequest {
                             let mut headers =
                                 std::mem::replace(self.as_mut().headers(), HeaderMap::new());
 
-                            remove_sensitive_headers(&mut headers, &self.url, &self.urls);
+                            if self.client.strip_sensitive_headers {
+                                remove_sensitive_headers(&mut headers, &self.url, &self.urls);
+                            }
+
                             let uri = expect_uri(&self.url);
                             let body = match self.body {
                                 Some(Some(ref body)) => Body::reusable(body.clone()),
