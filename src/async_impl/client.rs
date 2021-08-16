@@ -1199,6 +1199,7 @@ impl ClientBuilder {
         self
     }
 
+    /// Strip sensitive headers.
     pub fn strip_sensitive_headers(mut self, strip: bool) -> ClientBuilder {
         self.config.strip_sensitive_headers = strip;
         self
