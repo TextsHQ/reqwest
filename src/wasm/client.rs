@@ -1,10 +1,10 @@
 use http::{HeaderMap, Method};
-use js_sys::Promise;
+use js_sys::{Promise, JSON};
 use std::{fmt, future::Future, sync::Arc};
 use url::Url;
 use wasm_bindgen::prelude::{wasm_bindgen, UnwrapThrowExt as _};
 
-use super::{Request, RequestBuilder, Response};
+use super::{AbortGuard, Request, RequestBuilder, Response};
 use crate::IntoUrl;
 
 #[wasm_bindgen]
@@ -17,8 +17,7 @@ fn js_fetch(req: &web_sys::Request) -> Promise {
     use wasm_bindgen::{JsCast, JsValue};
     let global = js_sys::global();
 
-    if let Some(true) =
-        js_sys::Reflect::has(&global, &JsValue::from_str("ServiceWorkerGlobalScope")).ok()
+    if let Ok(true) = js_sys::Reflect::has(&global, &JsValue::from_str("ServiceWorkerGlobalScope"))
     {
         global
             .unchecked_into::<web_sys::ServiceWorkerGlobalScope>()
@@ -213,9 +212,12 @@ async fn fetch(req: Request) -> crate::Result<Response> {
 
     if let Some(body) = req.body() {
         if !body.is_empty() {
-            init.body(Some(&body.to_js_value()?.as_ref().as_ref()));
+            init.body(Some(body.to_js_value()?.as_ref()));
         }
     }
+
+    let abort = AbortGuard::new()?;
+    init.signal(Some(&abort.signal()));
 
     let js_req = web_sys::Request::new_with_str_and_init(req.url().as_str(), &init)
         .map_err(crate::error::wasm)
@@ -239,15 +241,16 @@ async fn fetch(req: Request) -> crate::Result<Response> {
 
     for item in js_iter {
         let item = item.expect_throw("headers iterator doesn't throw");
-        let v: Vec<String> = item.into_serde().expect_throw("headers into_serde");
-        resp = resp.header(
-            v.get(0).expect_throw("headers name"),
-            v.get(1).expect_throw("headers value"),
-        );
+        let serialized_headers: String = JSON::stringify(&item)
+            .expect_throw("serialized headers")
+            .into();
+        let [name, value]: [String; 2] = serde_json::from_str(&serialized_headers)
+            .expect_throw("deserializable serialized headers");
+        resp = resp.header(&name, &value);
     }
 
     resp.body(js_resp)
-        .map(|resp| Response::new(resp, url))
+        .map(|resp| Response::new(resp, url, abort))
         .map_err(crate::error::request)
 }
 

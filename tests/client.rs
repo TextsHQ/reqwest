@@ -190,6 +190,40 @@ async fn overridden_dns_resolution_with_gai() {
     assert_eq!("Hello", text);
 }
 
+#[tokio::test]
+async fn overridden_dns_resolution_with_gai_multiple() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let server = server::http(move |_req| async { http::Response::new("Hello".into()) });
+
+    let overridden_domain = "rust-lang.org";
+    let url = format!(
+        "http://{}:{}/domain_override",
+        overridden_domain,
+        server.addr().port()
+    );
+    // the server runs on IPv4 localhost, so provide both IPv4 and IPv6 and let the happy eyeballs
+    // algorithm decide which address to use.
+    let client = reqwest::Client::builder()
+        .resolve_to_addrs(
+            overridden_domain,
+            &[
+                std::net::SocketAddr::new(
+                    std::net::IpAddr::V6(std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                    server.addr().port(),
+                ),
+                server.addr(),
+            ],
+        )
+        .build()
+        .expect("client builder");
+    let req = client.get(&url);
+    let res = req.send().await.expect("request");
+
+    assert_eq!(res.status(), reqwest::StatusCode::OK);
+    let text = res.text().await.expect("Failed to get text");
+    assert_eq!("Hello", text);
+}
+
 #[cfg(feature = "trust-dns")]
 #[tokio::test]
 async fn overridden_dns_resolution_with_trust_dns() {
@@ -204,6 +238,42 @@ async fn overridden_dns_resolution_with_trust_dns() {
     );
     let client = reqwest::Client::builder()
         .resolve(overridden_domain, server.addr())
+        .trust_dns(true)
+        .build()
+        .expect("client builder");
+    let req = client.get(&url);
+    let res = req.send().await.expect("request");
+
+    assert_eq!(res.status(), reqwest::StatusCode::OK);
+    let text = res.text().await.expect("Failed to get text");
+    assert_eq!("Hello", text);
+}
+
+#[cfg(feature = "trust-dns")]
+#[tokio::test]
+async fn overridden_dns_resolution_with_trust_dns_multiple() {
+    let _ = env_logger::builder().is_test(true).try_init();
+    let server = server::http(move |_req| async { http::Response::new("Hello".into()) });
+
+    let overridden_domain = "rust-lang.org";
+    let url = format!(
+        "http://{}:{}/domain_override",
+        overridden_domain,
+        server.addr().port()
+    );
+    // the server runs on IPv4 localhost, so provide both IPv4 and IPv6 and let the happy eyeballs
+    // algorithm decide which address to use.
+    let client = reqwest::Client::builder()
+        .resolve_to_addrs(
+            overridden_domain,
+            &[
+                std::net::SocketAddr::new(
+                    std::net::IpAddr::V6(std::net::Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1)),
+                    server.addr().port(),
+                ),
+                server.addr(),
+            ],
+        )
         .trust_dns(true)
         .build()
         .expect("client builder");
@@ -246,7 +316,11 @@ fn use_preconfigured_native_tls_default() {
 fn use_preconfigured_rustls_default() {
     extern crate rustls;
 
-    let tls = rustls::ClientConfig::new();
+    let root_cert_store = rustls::RootCertStore::empty();
+    let tls = rustls::ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(root_cert_store)
+        .with_no_client_auth();
 
     reqwest::Client::builder()
         .use_preconfigured_tls(tls)
@@ -286,7 +360,7 @@ async fn test_allowed_methods() {
         .send()
         .await;
 
-    assert_eq!(resp.is_err(), false);
+    assert!(resp.is_ok());
 
     let resp = reqwest::Client::builder()
         .https_only(true)
@@ -296,5 +370,5 @@ async fn test_allowed_methods() {
         .send()
         .await;
 
-    assert_eq!(resp.is_err(), true);
+    assert!(resp.is_err());
 }
